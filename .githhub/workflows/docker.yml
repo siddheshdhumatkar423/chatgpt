@@ -1,0 +1,75 @@
+name: Terraform + Dynamic Docker Compose CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  terraform:
+    name: Terraform + Dynamic Docker Compose Workflow
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Install Docker and Docker Compose
+      - name: Install Docker & Docker Compose
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker.io
+          sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+          docker-compose --version
+
+      # Create a dynamic docker-compose.yml file
+      - name: Create docker-compose.yml
+        run: |
+          echo "version: '3.8'" > docker-compose.yml
+          echo "services:" >> docker-compose.yml
+          echo "  web:" >> docker-compose.yml
+          echo "    image: nginx" >> docker-compose.yml
+          echo "    ports:" >> docker-compose.yml
+          echo "      - '8080:80'" >> docker-compose.yml
+
+      # Run Docker Compose to build and start containers
+      - name: Run docker-compose
+        run: docker-compose up -d --build
+
+      # Wait for the containers to be up and running
+      - name: Wait for Nginx container to be ready
+        run: |
+          sleep 10
+          curl -v http://localhost:8080
+
+      # Configure AWS Credentials for Terraform
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # Set up Terraform
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+
+      # Terraform Init, Validate, Plan, and Apply
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform apply -auto-approve
